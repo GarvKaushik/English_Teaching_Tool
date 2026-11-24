@@ -1,0 +1,164 @@
+/*
+ * Design tokens. Day is the default theme; Night applies with <html data-theme="night">.
+ * Components read these through Tailwind utilities (mapped in @theme below), e.g.
+ * bg-surface, text-fg-2, bg-mint, text-on-mint, rounded-card.
+ */
+
+:root {
+  /* Accents (both themes) */
+  --mint: #7ee8b5;
+  --mint-hover: #5fd9a0;
+  --on-mint: #0f2a20;
+  --hero-from: #0f3d2e;
+  --hero-to: #1f5a44;
+  --coral: #f4a47c;
+  --peach: #fbd9c6;
+  --danger: #f06a6a;
+  --rail-from: #0f3d2e;
+  --rail-to: #133528;
+  --on-dark: #e8f1ec;
+  --on-dark-2: #a9c2b6;
+
+  /* Day */
+  --bg-from: #e6f2ec;
+  --bg-to: #f6ede6;
+  --bg-glow: rgb(126 232 181 / 0.18);
+  --shell: rgb(255 255 255 / 0.42);
+  --shell-border: rgb(255 255 255 / 0.7);
+  --surface: #ffffff;
+  --surface-solid: #ffffff; /* opaque card colour (lens copy) */
+  --surface-raised: #f1f5f3;
+  --surface-hover: #e6eee9;
+  --line: rgb(15 42 32 / 0.07);
+  --fg: #0f2a20;
+  --fg-2: #5b6f66;
+  --fg-3: #607369; /* kept at 4.5:1 on white for 12px meta text */
+  --accent-fg: #1f5a44; /* mint fails as text on light surfaces, so accent text is deep green */
+  --danger-fg: #b93a3a;
+  --ring: #1e9a66; /* mint focus ring, darkened so it stays 3:1 on light surfaces */
+  --shadow-card: 0 8px 30px rgb(15 42 32 / 0.06);
+  --shadow-pop: 0 20px 60px rgb(15 42 32 / 0.18);
+  --scrim: rgb(15 42 32 / 0.25);
+  --track: #d7e1dc;
+
+  /* Shape + motion */
+  --tabbar-height: 88px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  color-scheme: light;
+}
+
+:root[data-theme="night"] {
+  --bg-from: #0b1410;
+  --bg-to: #0f1f18;
+  --bg-glow: rgb(126 232 181 / 0.07);
+  --shell: rgb(15 31 24 / 0.55);
+  --shell-border: rgb(255 255 255 / 0.05);
+  --surface: rgb(19 35 28 / 0.8);
+  --surface-solid: #13231c;
+  --surface-raised: #1a2e25;
+  --surface-hover: #1f3a2e;
+  --line: rgb(255 255 255 / 0.05);
+  --fg: #e8f1ec;
+  --fg-2: #8fa39a;
+  --fg-3: #7f948a; /* #5E7268 is below AA for text; used only for non-text below */
+  --accent-fg: #7ee8b5;
+  --danger-fg: #f58a8a;
+  --ring: #7ee8b5;
+  --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 8px 30px rgb(0 0 0 / 0.25);
+  --shadow-pop: 0 24px 70px rgb(0 0 0 / 0.55);
+  --scrim: rgb(5 10 8 / 0.55);
+  --track: #5e7268;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: var(--font-serif-accent), Georgia, serif;
+
+  --color-surface: var(--surface);
+  --color-raised: var(--surface-raised);
+  --color-hover: var(--surface-hover);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-accent-fg: var(--accent-fg);
+  --color-mint: var(--mint);
+  --color-mint-hover: var(--mint-hover);
+  --color-on-mint: var(--on-mint);
+  --color-hero: var(--hero-from);
+  --color-hero-2: var(--hero-to);
+  --color-coral: var(--coral);
+  --color-peach: var(--peach);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-on-dark: var(--on-dark);
+  --color-on-dark-2: var(--on-dark-2);
+  --color-track: var(--track);
+
+  --radius-shell: 32px;
+  --radius-rail: 28px;
+  --radius-card: 24px;
+  --radius-tile: 18px;
+  --radius-input: 14px;
+
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --ease-out: var(--ease-out);
+}
+
+/* Theme switch: colors animate over 300ms only while switching (class added by setTheme). */
+html.theme-anim,
+html.theme-anim *,
+html.theme-anim *::before,
+html.theme-anim *::after {
+  transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease, fill 300ms ease, box-shadow 300ms ease !important;
+}
+
+/* ---------- Legacy aliases ----------
+ * Older screens (ui.module.css) still read these names. They map onto the new tokens
+ * and go away once every screen uses the primitives.
+ */
+:root {
+  --background: var(--bg-from);
+  --surface-2: var(--surface-raised);
+  --foreground: var(--fg);
+  --muted: var(--fg-2);
+  --border: var(--line);
+  --accent: var(--accent-fg);
+  --accent-hover: var(--hero-from);
+  --on-accent: #ffffff;
+  --accent-soft: rgb(126 232 181 / 0.3);
+  --good: #15803d;
+  --good-soft: #dcfce7;
+  --ok: #b45309;
+  --ok-soft: #fef3c7;
+  --bad: var(--danger-fg);
+  --bad-soft: #fde4e4;
+  --xp: #b45309;
+  --streak: #c2410c;
+  --tile-correct: #15803d;
+  --tile-present: #b45309;
+  --tile-absent: #64748b;
+  --radius-sm: 14px;
+  --radius: 24px;
+  --radius-lg: 24px;
+  --shadow-sm: var(--shadow-card);
+  --shadow: var(--shadow-card);
+  --fast: 150ms;
+  --medium: 250ms;
+}
+:root[data-theme="night"] {
+  --on-accent: var(--on-mint);
+  --accent-soft: rgb(126 232 181 / 0.14);
+  --good: #4ade80;
+  --good-soft: #12301f;
+  --ok: #fbbf24;
+  --ok-soft: #33270c;
+  --bad-soft: #3a1717;
+  --xp: #fbbf24;
+  --streak: #fb923c;
+  --tile-absent: #475569;
+}

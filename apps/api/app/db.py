@@ -1,0 +1,289 @@
+import json
+import os
+import sqlite3
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta, timezone
+
+from fastapi import HTTPException
+
+# shortcut: one day boundary (India time) for every user; store a per-user timezone when serving other countries.
+IST = timezone(timedelta(hours=5, minutes=30))
+FREE_PLAN_ID = 1
+
+SCHEMA = """
+create table if not exists plans (
+    id integer primary key,
+    name text not null unique collate nocase,
+    price_inr integer not null,
+    days integer,  -- null = never expires (Free)
+    interviews integer,  -- resume interviews included; null = unlimited
+    daily_minutes real not null,  -- speaking time per day
+    azure_voice integer not null default 0,  -- 0 = the browser's built-in voice
+    listed integer not null default 1,  -- unlisted plans can't be given to more users; current holders keep them
+    created_at text not null default current_timestamp
+);
+create table if not exists users (
+    id integer primary key,
+    auth_id text unique,  -- Supabase Auth user id (sub); null only for old name-only test accounts
+    email text,
+    phone text unique,  -- E.164, e.g. +919876543210; one account per number
+    name text not null,  -- display name, not unique
+    birth_year integer not null,
+    parental_consent integer not null default 0,
+    explain_lang text not null default 'english',
+    plan_id integer not null default 1,  -- plans.id; set by an admin until payments exist
+    plan_started text,
+    plan_expires text,  -- last day of the plan (IST); null = never expires
+    interviews_used integer not null default 0,  -- resume interviews started on the current plan
+    upcoming_plan_id integer,  -- a paid-for plan that starts when the current one ends (downgrade or renewal)
+    level text,
+    xp integer not null default 0,
+    streak integer not null default 0,
+    last_active text,
+    created_at text not null default current_timestamp
+);
+create table if not exists activities (
+    id integer primary key,
+    user_id integer not null references users(id) on delete cascade,
+    kind text not null,
+    score integer,
+    xp integer not null,
+    detail text,
+    created_at text not null default current_timestamp
+);
+create table if not exists mistakes (
+    id integer primary key,
+    user_id integer not null references users(id) on delete cascade,
+    source text not null,
+    type text not null,
+    original text not null,
+    correction text not null,
+    explanation text not null,
+    created_at text not null default current_timestamp
+);
+create table if not exists usage (
+    user_id integer not null references users(id) on delete cascade,
+    day text not null,
+    seconds real not null,
+    primary key (user_id, day)
+);
+create table if not exists roleplay_sessions (
+    id integer primary key,
+    user_id integer not null references users(id) on delete cascade,
+    scenario text not null,
+    messages text not null,
+    context text,
+    turns integer not null default 0,
+    finished integer not null default 0
+);
+create table if not exists payments (
+    id integer primary key,
+    user_id integer references users(id) on delete set null,  -- kept for accounts after deletion (tax records)
+    plan_id integer not null,
+    amount_paise integer not null,
+    currency text not null default 'INR',
+    razorpay_order_id text not null unique,
+    razorpay_payment_id text,
+    status text not null default 'created',  -- created | paid
+    outcome text,  -- activated | queued, once paid
+    created_at text not null default current_timestamp,
+    paid_at text
+);
+create table if not exists daily_word_games (
+    user_id integer not null references users(id) on delete cascade,
+    day text not null,
+    guesses text not null default '[]',
+    finished integer not null default 0,
+    solved integer not null default 0,
+    bonus_done integer not null default 0,
+    primary key (user_id, day)
+);
+create table if not exists word_chain_games (
+    id integer primary key,
+    user_id integer not null references users(id) on delete cascade,
+    words text not null default '[]',  -- [{"word": ..., "by": "you" | "ai", "points": ...}]
+    score integer not null default 0,
+    retry_used integer not null default 0,
+    finished integer not null default 0,
+    turn_started real not null  -- unix time the learner's current turn began (server-side timer)
+);
+create table if not exists twisters (
+    id integer primary key,
+    text text not null unique,
+    added text not null  -- IST day the AI added it, or 'builtin'
+);
+create table if not exists quiz_sessions (
+    id integer primary key,
+    user_id integer not null references users(id) on delete cascade,
+    questions text not null,  -- includes answers; only sent to the client without them
+    finished integer not null default 0
+);
+"""
+
+
+def today() -> date:
+    return datetime.now(IST).date()
+
+
+@contextmanager
+def connect():
+    con = sqlite3.connect(os.environ.get("DB_PATH", "data.db"))
+    con.row_factory = sqlite3.Row
+    con.execute("pragma foreign_keys = on")
+    try:
+        yield con
+        con.commit()
+    finally:
+        con.close()
+
+
+def init() -> None:
+    with connect() as con:
+        con.executescript(SCHEMA)
+        con.execute("drop table if exists daily_twisters")  # replaced by the twisters pool
+        # Columns added after the first release; older databases get them here.
+        for table, column, definition in (("roleplay_sessions", "context", "text"),
+                                          ("users", "plan_id", "integer not null default 1"),
+                                          ("users", "plan_started", "text"),
+                                          ("users", "plan_expires", "text"),
+                                          ("users", "interviews_used", "integer not null default 0"),
+                                          ("users", "upcoming_plan_id", "integer")):
+            if column not in {r["name"] for r in con.execute(f"pragma table_info({table})")}:
+                con.execute(f"alter table {table} add column {column} {definition}")
+        if "plan" in {r["name"] for r in con.execute("pragma table_info(users)")}:
+            con.execute("alter table users drop column plan")  # replaced by plan_id
+        if "token" in {r["name"] for r in con.execute("pragma table_info(users)")}:
+            _rebuild_users_for_real_login(con)
+        if not con.execute("select 1 from plans").fetchone():
+            con.executemany(
+                "insert into plans (id, name, price_inr, days, interviews, daily_minutes, azure_voice) "
+                "values (?, ?, ?, ?, ?, ?, ?)",
+                [(FREE_PLAN_ID, "Free", 0, None, 1, 15, 1), (2, "Interview Pack", 99, 90, 10, 15, 1)],
+            )
+        # One-time data changes, numbered so each runs once and later admin choices aren't overwritten.
+        if con.execute("pragma user_version").fetchone()[0] < 1:
+            con.execute("update plans set azure_voice = 1 where id = ?", (FREE_PLAN_ID,))  # free trial uses Azure too
+            con.execute("pragma user_version = 1")
+
+
+def _rebuild_users_for_real_login(con: sqlite3.Connection) -> None:
+    """Name-only databases: drop the unique name and login token, add auth_id, email and phone.
+
+    SQLite can't drop a UNIQUE constraint in place, so the table is rebuilt (SQLite's documented procedure).
+    Old accounts are kept but have no auth_id, so nobody can sign in to them.
+    """
+    users_ddl = SCHEMA[SCHEMA.index("create table if not exists users"):]
+    users_ddl = users_ddl[:users_ddl.index("\n);") + 3].replace("create table if not exists users", "create table users_new")
+    kept = ", ".join(c for c in ("id", "name", "birth_year", "parental_consent", "explain_lang", "plan_id", "plan_started",
+                                 "plan_expires", "interviews_used", "level", "xp", "streak", "last_active", "created_at"))
+    con.commit()
+    con.executescript(f"""
+        pragma foreign_keys = off;
+        begin;
+        {users_ddl}
+        insert into users_new ({kept}) select {kept} from users;
+        drop table users;
+        alter table users_new rename to users;
+        commit;
+        pragma foreign_keys = on;
+    """)
+
+
+def _plan_dates(plan: dict, start: date) -> tuple[str, str | None]:
+    return start.isoformat(), (start + timedelta(days=plan["days"] - 1)).isoformat() if plan["days"] else None
+
+
+def load_plan(con: sqlite3.Connection, user: dict) -> dict:
+    """The user with their current plan under "plan".
+
+    When a plan has ended, the upcoming plan (if any) takes over from the day after; otherwise the user returns to Free.
+    """
+    while user["plan_expires"] and date.fromisoformat(user["plan_expires"]) < today():
+        if user.get("upcoming_plan_id"):
+            plan = dict(con.execute("select * from plans where id = ?", (user["upcoming_plan_id"],)).fetchone())
+            started, expires = _plan_dates(plan, date.fromisoformat(user["plan_expires"]) + timedelta(days=1))
+            update = {"plan_id": plan["id"], "plan_started": started, "plan_expires": expires,
+                      "interviews_used": 0, "upcoming_plan_id": None}
+        else:
+            free = con.execute("select interviews from plans where id = ?", (FREE_PLAN_ID,)).fetchone()
+            # The free interview allowance counts as used, so expiry doesn't hand out a new free interview.
+            update = {"plan_id": FREE_PLAN_ID, "plan_started": today().isoformat(), "plan_expires": None,
+                      "interviews_used": free["interviews"] or 0, "upcoming_plan_id": None}
+        con.execute("update users set plan_id = ?, plan_started = ?, plan_expires = ?, interviews_used = ?, "
+                    "upcoming_plan_id = ? where id = ?", (*update.values(), user["id"]))
+        user = {**user, **update}
+    plan = dict(con.execute("select * from plans where id = ?", (user["plan_id"],)).fetchone())
+    upcoming = con.execute("select * from plans where id = ?", (user["upcoming_plan_id"],)).fetchone()         if user.get("upcoming_plan_id") else None
+    return {**user, "plan": plan, "upcoming": dict(upcoming) if upcoming else None}
+
+
+def interviews_left(user: dict) -> int | None:
+    allowance = user["plan"]["interviews"]
+    return None if allowance is None else max(0, allowance - user["interviews_used"])
+
+
+def assign_plan(con: sqlite3.Connection, user_id: int, plan: dict) -> None:
+    """Start `plan` today, replacing the current one (its remaining days and interviews end)."""
+    started, expires = _plan_dates(plan, today())
+    con.execute("update users set plan_id = ?, plan_started = ?, plan_expires = ?, interviews_used = 0 where id = ?",
+                (plan["id"], started, expires, user_id))
+
+
+def is_upgrade(current: dict, plan: dict) -> bool:
+    """Buying from Free, or a pricier plan, starts now; a cheaper or same-price plan waits for the current one to end."""
+    return current["id"] == FREE_PLAN_ID or plan["price_inr"] > current["price_inr"]
+
+
+def apply_purchase(con: sqlite3.Connection, user: dict, plan: dict) -> str:
+    """Give a paid-for plan to the user: 'activated' now, or 'queued' as the upcoming plan."""
+    if is_upgrade(user["plan"], plan) or user.get("upcoming_plan_id") or not user["plan_expires"]:
+        assign_plan(con, user["id"], plan)  # also the fallback if the upcoming slot was taken meanwhile
+        return "activated"
+    con.execute("update users set upcoming_plan_id = ? where id = ?", (plan["id"], user["id"]))
+    return "queued"
+
+
+def next_streak(streak: int, last_active: str | None, day: date) -> int:
+    last = date.fromisoformat(last_active) if last_active else None
+    if last == day:
+        return streak
+    return streak + 1 if last == day - timedelta(days=1) else 1
+
+
+def award(con: sqlite3.Connection, user_id: int, kind: str, score: int | None, xp: int, detail: dict | None = None) -> None:
+    """Record an activity and update XP and the daily streak."""
+    con.execute("insert into activities (user_id, kind, score, xp, detail) values (?, ?, ?, ?, ?)",
+                (user_id, kind, score, xp, json.dumps(detail) if detail else None))
+    user = con.execute("select streak, last_active from users where id = ?", (user_id,)).fetchone()
+    day = today()
+    con.execute("update users set xp = xp + ?, streak = ?, last_active = ? where id = ?",
+                (xp, next_streak(user["streak"], user["last_active"], day), day.isoformat(), user_id))
+
+
+def save_mistakes(con: sqlite3.Connection, user_id: int, source: str, raw) -> list[dict]:
+    """Keep only well-formed mistakes from AI output (fixed structure the mistake bank depends on)."""
+    keys = ("type", "original", "correction", "explanation")
+    clean = [
+        {k: str(m[k])[:500] for k in keys}
+        for m in (raw if isinstance(raw, list) else [])[:10]
+        if isinstance(m, dict) and all(isinstance(m.get(k), str) and m[k].strip() for k in keys)
+    ]
+    con.executemany(
+        "insert into mistakes (user_id, source, type, original, correction, explanation) values (?, ?, ?, ?, ?, ?)",
+        [(user_id, source, *(m[k] for k in keys)) for m in clean],
+    )
+    return clean
+
+
+def charge_speaking(user: dict, seconds: float) -> None:
+    user_id = user["id"]
+    limit = user["plan"]["daily_minutes"] * 60
+    day = today().isoformat()
+    with connect() as con:
+        row = con.execute("select seconds from usage where user_id = ? and day = ?", (user_id, day)).fetchone()
+        used = row["seconds"] if row else 0
+        if used + seconds > limit:
+            raise HTTPException(429, "You've reached today's speaking limit. Come back tomorrow!")
+        con.execute("insert into usage (user_id, day, seconds) values (?, ?, ?) "
+                    "on conflict (user_id, day) do update set seconds = seconds + excluded.seconds",
+                    (user_id, day, seconds))

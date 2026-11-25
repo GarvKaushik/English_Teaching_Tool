@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  AudioLines, BriefcaseBusiness, ChevronRight, Flame, Globe, History, LayoutGrid, Link2, ListChecks,
+  AudioLines, BriefcaseBusiness, ChevronRight, GraduationCap, Flame, Globe, History, LayoutGrid, Link2, ListChecks,
   LogOut, MessagesSquare, Mic, Sparkles, Target, Timer, Trash2, Trophy, Zap, type LucideIcon,
 } from "lucide-react";
 import { MistakeList } from "@/components/Results";
@@ -28,6 +28,7 @@ type Me = {
 const KINDS: Record<string, { label: string; short: string; icon: LucideIcon }> = {
   placement: { label: "Placement test", short: "Placement", icon: Target },
   roleplay: { label: "Role-play", short: "Role-play", icon: MessagesSquare },
+  coach: { label: "Mistake Coach", short: "Coach", icon: GraduationCap },
   jam: { label: "JAM", short: "JAM", icon: Timer },
   daily_word: { label: "Daily Word", short: "Word", icon: LayoutGrid },
   daily_word_bonus: { label: "Daily Word bonus", short: "Bonus", icon: Sparkles },
@@ -39,6 +40,7 @@ const kind = (k: string) => KINDS[k] ?? { label: k, short: k, icon: Zap };
 
 const FEATURES: { href: string; title: string; text: string; icon: LucideIcon }[] = [
   { href: "/roleplay", title: "AI Role-Play", text: "Practise a job interview or an everyday conversation.", icon: MessagesSquare },
+  { href: "/coach", title: "Mistake Coach", text: "Talk hands-free about your recent mistakes, in English or Hinglish.", icon: GraduationCap },
   { href: "/jam", title: "JAM: Just a Minute", text: "Speak for 60 seconds on today's topic.", icon: Timer },
   { href: "/daily-word", title: "Daily Word", text: "Guess today's five-letter word in six tries.", icon: LayoutGrid },
   { href: "/word-chain", title: "Word Chain", text: "Say a word that starts with the last letter of the AI's word.", icon: Link2 },

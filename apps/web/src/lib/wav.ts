@@ -37,8 +37,9 @@ const CAPTURE_WORKLET = `registerProcessor("capture", class extends AudioWorklet
   }
 });`;
 
-/** Start recording the microphone. Call the returned function to stop and get a 16 kHz mono WAV. */
-export async function startCapture(): Promise<() => Promise<Blob>> {
+/** Start recording the microphone. Call the returned function to stop and get a 16 kHz mono WAV.
+ *  `onChunk` sees the raw samples as they arrive (used for hands-free voice detection). */
+export async function startCapture(onChunk?: (samples: Float32Array, sampleRate: number) => void): Promise<() => Promise<Blob>> {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   const ctx = new AudioContext();
   try {
@@ -53,7 +54,10 @@ export async function startCapture(): Promise<() => Promise<Blob>> {
   const source = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, "capture");
   const chunks: Float32Array[] = [];
-  node.port.onmessage = (e) => chunks.push(e.data);
+  node.port.onmessage = (e) => {
+    chunks.push(e.data);
+    onChunk?.(e.data, ctx.sampleRate);
+  };
   source.connect(node);
   node.connect(ctx.destination); // outputs silence; keeps the node running in every browser
 

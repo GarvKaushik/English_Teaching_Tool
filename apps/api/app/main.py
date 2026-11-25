@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app import admin, daily_word, db, jam, payments, placement, quiz, roleplay, tongue_twister, users, word_chain
+from app import admin, coach, daily_word, db, jam, payments, placement, quiz, roleplay, tongue_twister, users, word_chain
 from app.errors import NoSpeechDetected, ProviderFailed, ProviderUnavailable
 
 
@@ -22,7 +22,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for module in (users, placement, roleplay, jam, daily_word, word_chain, tongue_twister, quiz, payments, admin):
+for module in (users, placement, roleplay, coach, jam, daily_word, word_chain, tongue_twister, quiz, payments, admin):
     app.include_router(module.router)
 
 

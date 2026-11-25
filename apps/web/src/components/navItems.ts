@@ -1,4 +1,4 @@
-import { AudioLines, BriefcaseBusiness, House, LayoutGrid, Link2, ListChecks, MessagesSquare, Sparkles, Target, Timer, type LucideIcon } from "lucide-react";
+import { AudioLines, BriefcaseBusiness, GraduationCap, House, LayoutGrid, Link2, ListChecks, MessagesSquare, Sparkles, Target, Timer, type LucideIcon } from "lucide-react";
 
 export type NavItem = { href: string; label: string; hint: string; icon: LucideIcon; rail: boolean; bar: boolean };
 
@@ -6,6 +6,7 @@ export type NavItem = { href: string; label: string; hint: string; icon: LucideI
 export const NAV: NavItem[] = [
   { href: "/", label: "Home", hint: "Your progress and practice", icon: House, rail: true, bar: true },
   { href: "/roleplay", label: "Role-play", hint: "Talk with an AI partner", icon: MessagesSquare, rail: true, bar: true },
+  { href: "/coach", label: "Mistake Coach", hint: "Talk through your recent mistakes", icon: GraduationCap, rail: true, bar: false },
   { href: "/interview", label: "Interview", hint: "Practise from your resume", icon: BriefcaseBusiness, rail: true, bar: false },
   { href: "/jam", label: "JAM", hint: "Speak for one minute", icon: Timer, rail: true, bar: true },
   { href: "/daily-word", label: "Daily Word", hint: "Today's five-letter word", icon: LayoutGrid, rail: true, bar: true },

@@ -88,7 +88,8 @@ def _pdf_text(data: bytes) -> str:
 
 
 def _session(con, session_id: int, user: dict):
-    row = con.execute("select * from roleplay_sessions where id = ? and user_id = ?", (session_id, user["id"])).fetchone()
+    row = con.execute("select * from roleplay_sessions where id = ? and user_id = ? and scenario != 'coach'",
+                      (session_id, user["id"])).fetchone()  # coach sessions share the table but have their own API
     if not row:
         raise HTTPException(404, "Session not found.")
     if row["finished"]:

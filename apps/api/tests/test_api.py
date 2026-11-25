@@ -495,3 +495,55 @@ def test_webhook_applies_paid_order_once(client, login, razorpay, monkeypatch):
     admin = admin_headers(client, monkeypatch)
     paid = client.get("/v1/admin/payments", headers=admin).json()
     assert [(p["status"], p["outcome"], p["razorpay_payment_id"]) for p in paid] == [("paid", "activated", "pay_9")]
+
+
+def add_mistakes(name, *originals):
+    with db.connect() as con:
+        uid = con.execute("select id from users where auth_id = ?", (f"user-{name.lower()}",)).fetchone()["id"]
+        con.executemany("insert into mistakes (user_id, source, type, original, correction, explanation) "
+                        "values (?, 'jam', 'grammar', ?, ?, 'rule')", [(uid, o, o + " (fixed)") for o in originals])
+
+
+def test_coach_needs_saved_mistakes(client, login):
+    r = client.post("/v1/coach", headers=login(), json={})
+    assert r.status_code == 422 and "no saved mistakes" in r.json()["detail"]
+
+
+def test_coach_flow(client, login, fakes, monkeypatch):
+    asha, ravi = login("Asha"), login("Ravi")
+    add_mistakes("Asha", "I am going to market", "he go to school", "He go to school.")
+    add_mistakes("Ravi", "ravi's own mistake")
+    systems = []
+
+    async def chat(system, messages):
+        systems.append(system)
+        return "Let's practise."
+    monkeypatch.setattr(llm, "chat", chat)
+
+    start = client.post("/v1/coach", headers=asha, json={"language": "hinglish"}).json()
+    sid = start["session_id"]
+    assert start["language"] == "hinglish" and start["mistakes"] == 2 and start["turns_left"] == 10  # duplicate dropped
+    assert "Hinglish" in systems[0] and "I am going to market" in systems[0] and "ravi's own mistake" not in systems[0]
+
+    assert client.post(f"/v1/coach/{sid}/finish", headers=asha).status_code == 422
+    assert client.post(f"/v1/coach/{sid}/turn", headers=ravi, files=audio()).status_code == 404
+    assert client.post(f"/v1/roleplay/{sid}/turn", headers=asha, files=audio()).status_code == 404  # coach-only session
+    turn = client.post(f"/v1/coach/{sid}/turn", headers=asha, files=audio()).json()
+    assert turn["transcript"] == "I would like a coffee please" and turn["turns_left"] == 9
+
+    fakes["json"] = {"summary": "You practised **he goes**.", "mistakes": [
+        {"type": "grammar", "original": "I goes", "correction": "I go", "explanation": "rule"},
+        {"type": "grammar", "original": "ok", "correction": "OK.", "explanation": "punctuation only"}]}
+    recap = client.post(f"/v1/coach/{sid}/finish", headers=asha).json()
+    assert recap["summary"] == "You practised he goes." and recap["audio"] == "bXAz" and recap["xp"] == 10
+    assert [m["original"] for m in recap["mistakes"]] == ["I goes"]
+    me = client.get("/v1/me", headers=asha).json()
+    assert me["mistakes"][0]["source"] == "coach" and me["activities"][0]["kind"] == "coach"
+    assert client.post(f"/v1/coach/{sid}/turn", headers=asha, files=audio()).status_code == 409
+
+
+def test_coach_language_defaults_to_profile(client, login):
+    headers = login("Meera", explain_lang="hinglish")
+    add_mistakes("Meera", "she don't like it")
+    assert client.post("/v1/coach", headers=headers, json={}).json()["language"] == "hinglish"
+    assert client.post("/v1/coach", headers=headers, json={"language": "english"}).json()["language"] == "english"

@@ -104,10 +104,13 @@ def score_of(value) -> int:
         return 0
 
 
+HINGLISH = "Hinglish (simple Hindi written in Roman letters, mixed with easy English)"
+
+
 def explain_language(user: dict) -> str:
     # Mother-tongue support: Hinglish for beginners/intermediates who chose it, English only once advanced.
     if user["explain_lang"] == "hinglish" and user["level"] != "advanced":
-        return "Hinglish (simple Hindi written in Roman letters, mixed with easy English)"
+        return HINGLISH
     return "simple English"
 
 

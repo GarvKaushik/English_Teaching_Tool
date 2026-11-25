@@ -205,6 +205,7 @@ Open http://localhost:3000.
 - [ ] Pronunciation scoring with feedback (removed from the MVP to cut cost)
 - [x] Tongue Twister and Word Chain (Tongue Twister scored on word match × speed until pronunciation scoring)
 - [ ] Friends, leaderboards and "Beat My Score" challenges
+- [x] Mistake Coach: hands-free spoken session on the learner's recent mistakes, explained in English or Hinglish (`/coach`)
 - [ ] Find the Mistakes with personal mistake bank and spaced repetition
 - [ ] Written tests and writing correction (MCQ grammar and vocabulary quiz done; writing correction open)
 - [ ] More role-play scenarios, including customer calls

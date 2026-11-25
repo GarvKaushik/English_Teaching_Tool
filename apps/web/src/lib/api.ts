@@ -98,16 +98,27 @@ export function postAudio<T>(path: string, wav: Blob, fields: Record<string, str
   return api<T>(path, { method: "POST", body: form });
 }
 
-/** Play the server's voice if it sent one; otherwise (free plan, or TTS failed) read `text` with the browser's own voice. */
-export function playAudio(base64?: string | null, text?: string) {
+/** Play the server's voice if it sent one; otherwise (free plan, or TTS failed) read `text` with the browser's own voice.
+ *  `onEnd` runs once when playback finishes or can't start. */
+export function playAudio(base64?: string | null, text?: string, onEnd?: () => void) {
+  let ended = false;
+  const done = () => {
+    if (!ended) onEnd?.();
+    ended = true;
+  };
   if (base64) {
-    new Audio(`data:audio/mpeg;base64,${base64}`).play().catch(() => {});
+    const audio = new Audio(`data:audio/mpeg;base64,${base64}`);
+    audio.onended = done;
+    audio.onerror = done;
+    audio.play().catch(done);
     return;
   }
-  if (!text || typeof speechSynthesis === "undefined") return;
+  if (!text || typeof speechSynthesis === "undefined") return done();
   speechSynthesis.cancel(); // don't queue behind a previous reply
   const speak = () => {
     const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onend = done;
+    utterance.onerror = done;
     const voice = bestVoice(speechSynthesis.getVoices());
     utterance.voice = voice;
     utterance.lang = voice?.lang ?? "en-IN";
